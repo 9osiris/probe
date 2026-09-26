@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import sys
 
@@ -13,7 +14,19 @@ def main():
     p.add_argument("--base-url", default=os.environ.get("PROBE_BASE_URL", "https://api.openai.com/v1"))
     p.add_argument("--api-key", default=os.environ.get("PROBE_API_KEY", os.environ.get("OPENAI_API_KEY", "")))
     p.add_argument("--evals", default="example_evals.json")
+    p.add_argument("--timeout", type=float,
+                   default=float(os.environ.get("PROBE_TIMEOUT", "120")),
+                   help="seconds per api request (default 120)")
+    p.add_argument("--jobs", type=int, default=1,
+                   help="evals to run in parallel (default 1)")
+    p.add_argument("--json", action="store_true",
+                   help="print machine-readable json instead of the table")
     args = p.parse_args()
+
+    if args.jobs < 1:
+        p.error("--jobs must be at least 1")
+    if args.timeout <= 0:
+        p.error("--timeout must be positive")
 
     try:
         evals = load_evals(args.evals)
@@ -21,8 +34,28 @@ def main():
         print("probe: %s" % e, file=sys.stderr)
         return 2
 
-    client = ChatClient(args.base_url, args.api_key, args.model)
-    results = run_evals(evals, client)
+    client = ChatClient(args.base_url, args.api_key, args.model, timeout=args.timeout)
+    results = run_evals(evals, client, jobs=args.jobs)
+    passed = sum(1 for r in results if r["passed"])
+
+    if args.json:
+        out = {
+            "model": args.model,
+            "passed": passed,
+            "total": len(results),
+            "results": [
+                {
+                    "name": r["name"],
+                    "passed": r["passed"],
+                    "ms": r["ms"],
+                    **({"reply": r["reply"]} if "reply" in r else {}),
+                    **({"error": r["error"]} if "error" in r else {}),
+                }
+                for r in results
+            ],
+        }
+        print(json.dumps(out, indent=2))
+        return 0 if passed == len(results) else 1
 
     width = max(len(r["name"]) for r in results)
     for r in results:
@@ -30,7 +63,6 @@ def main():
         if not r["passed"] and "error" in r:
             print("    error: %s" % r["error"])
 
-    passed = sum(1 for r in results if r["passed"])
     print("%d/%d passed" % (passed, len(results)))
     return 0 if passed == len(results) else 1
 

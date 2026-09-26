@@ -24,6 +24,9 @@ class ChatClient:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 payload = json.load(resp)
+        except TimeoutError:
+            # socket.timeout is the same object since python 3.10
+            raise RuntimeError("request timed out after %ss" % self.timeout)
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors="replace")[:500]
             raise RuntimeError("api error %d: %s" % (e.code, detail))
