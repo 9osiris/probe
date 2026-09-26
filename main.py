@@ -1,0 +1,39 @@
+import argparse
+import os
+import sys
+
+from client import ChatClient
+from evals import load_evals
+from runner import run_evals
+
+
+def main():
+    p = argparse.ArgumentParser(description="score a model on benchmark prompts")
+    p.add_argument("--model", default=os.environ.get("PROBE_MODEL", "gpt-4o-mini"))
+    p.add_argument("--base-url", default=os.environ.get("PROBE_BASE_URL", "https://api.openai.com/v1"))
+    p.add_argument("--api-key", default=os.environ.get("PROBE_API_KEY", os.environ.get("OPENAI_API_KEY", "")))
+    p.add_argument("--evals", default="example_evals.json")
+    args = p.parse_args()
+
+    try:
+        evals = load_evals(args.evals)
+    except (ValueError, OSError) as e:
+        print("probe: %s" % e, file=sys.stderr)
+        return 2
+
+    client = ChatClient(args.base_url, args.api_key, args.model)
+    results = run_evals(evals, client)
+
+    width = max(len(r["name"]) for r in results)
+    for r in results:
+        print("%-*s  %s" % (width, r["name"], "PASS" if r["passed"] else "FAIL"))
+        if not r["passed"] and "error" in r:
+            print("    error: %s" % r["error"])
+
+    passed = sum(1 for r in results if r["passed"])
+    print("%d/%d passed" % (passed, len(results)))
+    return 0 if passed == len(results) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
