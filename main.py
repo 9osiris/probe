@@ -21,6 +21,8 @@ def main():
                    help="evals to run in parallel (default 1)")
     p.add_argument("--json", action="store_true",
                    help="print machine-readable json instead of the table")
+    p.add_argument("--filter", default=None, metavar="TEXT",
+                   help="only run evals whose name contains TEXT (case-insensitive)")
     args = p.parse_args()
 
     if args.jobs < 1:
@@ -33,6 +35,13 @@ def main():
     except (ValueError, OSError) as e:
         print("probe: %s" % e, file=sys.stderr)
         return 2
+
+    if args.filter is not None:
+        needle = args.filter.lower()
+        evals = [ev for ev in evals if needle in ev["name"].lower()]
+        if not evals:
+            print("probe: no evals matched filter %r" % args.filter, file=sys.stderr)
+            return 2
 
     client = ChatClient(args.base_url, args.api_key, args.model, timeout=args.timeout)
     results = run_evals(evals, client, jobs=args.jobs)
