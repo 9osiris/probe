@@ -24,6 +24,10 @@ more flags:
 - `--filter TEXT` - only run evals whose name contains TEXT
   (case-insensitive). handy for rerunning one failing eval while you
   fix a prompt. exits 2 if nothing matches.
+- `--show` - in the pass/fail table, also print the reply under each
+  failing eval. handy for seeing what the model actually said when a
+  check misses. json output already includes replies, so this only
+  affects the table.
 
 output looks like:
 
