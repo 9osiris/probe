@@ -23,6 +23,8 @@ def main():
                    help="print machine-readable json instead of the table")
     p.add_argument("--filter", default=None, metavar="TEXT",
                    help="only run evals whose name contains TEXT (case-insensitive)")
+    p.add_argument("--show", action="store_true",
+                   help="print the reply under each failing eval in table mode")
     args = p.parse_args()
 
     if args.jobs < 1:
@@ -71,6 +73,8 @@ def main():
         print("%-*s  %s" % (width, r["name"], "PASS" if r["passed"] else "FAIL"))
         if not r["passed"] and "error" in r:
             print("    error: %s" % r["error"])
+        if args.show and not r["passed"] and "reply" in r:
+            print("    reply: %s" % r["reply"])
 
     print("%d/%d passed" % (passed, len(results)))
     return 0 if passed == len(results) else 1
