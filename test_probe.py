@@ -28,8 +28,8 @@ check("contains hit", run_check({"type": "contains", "value": "recurs"}, "it rec
 check("contains miss", not run_check({"type": "contains", "value": "zzz"}, "it recurses"))
 check("exact trims whitespace", run_check({"type": "exact", "value": "4"}, "  4\n"))
 check("exact miss", not run_check({"type": "exact", "value": "4"}, "four"))
-check("regex hit", run_check({"type": "regex", "value": "^\d+\.\d+$"}, "3.6"))
-check("regex miss", not run_check({"type": "regex", "value": "^\d+\.\d+$"}, "three point six"))
+check("regex hit", run_check({"type": "regex", "value": "^\\d+\\.\\d+$"}, "3.6"))
+check("regex miss", not run_check({"type": "regex", "value": "^\\d+\\.\\d+$"}, "three point six"))
 try:
     run_check({"type": "bogus", "value": "x"}, "reply text")
     check("bad check type raises", False)
@@ -107,7 +107,7 @@ def run_cli(evals_path, replies):
 evals_path = write_json([
     {"name": "contains eval", "prompt": "q1", "check": {"type": "contains", "value": "needle"}},
     {"name": "exact eval", "prompt": "q2", "check": {"type": "exact", "value": "yes"}},
-    {"name": "regex eval", "prompt": "q3", "check": {"type": "regex", "value": "^v\d+$"}},
+    {"name": "regex eval", "prompt": "q3", "check": {"type": "regex", "value": "^v\\d+$"}},
 ])
 p = run_cli(evals_path, {"q1": "haystack has a needle in it", "q2": "yes", "q3": "v12"})
 check("all pass exits 0", p.returncode == 0)
@@ -380,6 +380,28 @@ p = subprocess.run([sys.executable, "main.py", "--evals", fp, "--filter", "math"
 doc = json.loads(p.stdout)
 check("filter works with json output", doc.get("total") == 1 and doc["results"][0]["name"] == "math basic")
 server4.shutdown()
+
+
+# --show: table mode prints the reply under each failing eval
+server5 = HTTPServer(("127.0.0.1", 0), Handler)
+threading.Thread(target=server5.serve_forever, daemon=True).start()
+base5 = "http://127.0.0.1:%d/v1" % server5.server_port
+env = dict(os.environ, PROBE_BASE_URL=base5, PROBE_API_KEY="test")
+REPLIES = {"q1": "wrong answer here"}
+sp = write_json([
+    {"name": "shows reply", "prompt": "q1", "check": {"type": "contains", "value": "needle"}},
+    {"name": "quiet pass", "prompt": "q1", "check": {"type": "contains", "value": "wrong"}},
+])
+p = subprocess.run([sys.executable, "main.py", "--evals", sp, "--show"],
+                   capture_output=True, text=True, env=env,
+                   cwd=os.path.dirname(os.path.abspath(__file__)))
+check("show prints failing reply", "wrong answer here" in p.stdout)
+check("show only prints failing replies", p.stdout.count("wrong answer here") == 1)
+p = subprocess.run([sys.executable, "main.py", "--evals", sp],
+                   capture_output=True, text=True, env=env,
+                   cwd=os.path.dirname(os.path.abspath(__file__)))
+check("without show, replies stay hidden", "wrong answer here" not in p.stdout)
+server5.shutdown()
 
 print("\n%d passed, %d failed" % (passed, failed))
 sys.exit(1 if failed else 0)
