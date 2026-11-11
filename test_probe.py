@@ -403,5 +403,66 @@ p = subprocess.run([sys.executable, "main.py", "--evals", sp],
 check("without show, replies stay hidden", "wrong answer here" not in p.stdout)
 server5.shutdown()
 
+# --fail-fast: stop after the first failure, the rest show as skipped
+calls = {"n": 0}
+
+
+class CountHandler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        calls["n"] += 1
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        last_user = [m for m in body["messages"] if m["role"] == "user"][-1]["content"]
+        reply = REPLIES.get(last_user, "default reply")
+        payload = {"choices": [{"message": {"role": "assistant", "content": reply}}]}
+        data = json.dumps(payload).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *a):
+        pass
+
+
+server6 = HTTPServer(("127.0.0.1", 0), CountHandler)
+threading.Thread(target=server6.serve_forever, daemon=True).start()
+base6 = "http://127.0.0.1:%d/v1" % server6.server_port
+env = dict(os.environ, PROBE_BASE_URL=base6, PROBE_API_KEY="test")
+REPLIES = {"q1": "no match", "q2": "yes", "q3": "v12"}
+ff = write_json([
+    {"name": "first fails", "prompt": "q1", "check": {"type": "contains", "value": "needle"}},
+    {"name": "would pass", "prompt": "q2", "check": {"type": "exact", "value": "yes"}},
+    {"name": "also skipped", "prompt": "q3", "check": {"type": "regex", "value": "^v\\d+$"}},
+])
+calls["n"] = 0
+p = subprocess.run([sys.executable, "main.py", "--evals", ff, "--fail-fast"],
+                   capture_output=True, text=True, env=env,
+                   cwd=os.path.dirname(os.path.abspath(__file__)))
+check("fail-fast exits 1", p.returncode == 1)
+check("fail-fast marks rest skipped", p.stdout.count("SKIP") == 2)
+check("fail-fast summary counts skips", "0/3 passed (2 skipped)" in p.stdout)
+check("fail-fast only made one request", calls["n"] == 1)
+p = subprocess.run([sys.executable, "main.py", "--evals", ff, "--fail-fast", "--json"],
+                   capture_output=True, text=True, env=env,
+                   cwd=os.path.dirname(os.path.abspath(__file__)))
+doc = json.loads(p.stdout)
+check("fail-fast json flags skipped",
+      [r.get("skipped", False) for r in doc["results"]] == [False, True, True])
+check("fail-fast json totals", doc.get("passed") == 0 and doc.get("total") == 3)
+REPLIES = {"q1": "has needle", "q2": "wrong", "q3": "v12"}
+calls["n"] = 0
+p = subprocess.run([sys.executable, "main.py", "--evals", ff, "--fail-fast"],
+                   capture_output=True, text=True, env=env,
+                   cwd=os.path.dirname(os.path.abspath(__file__)))
+check("fail-fast stops at second failure", "1/3 passed (1 skipped)" in p.stdout)
+check("fail-fast ran two evals", calls["n"] == 2)
+calls["n"] = 0
+p = subprocess.run([sys.executable, "main.py", "--evals", ff],
+                   capture_output=True, text=True, env=env,
+                   cwd=os.path.dirname(os.path.abspath(__file__)))
+check("without fail-fast all evals run", calls["n"] == 3 and "SKIP" not in p.stdout)
+server6.shutdown()
+
 print("\n%d passed, %d failed" % (passed, failed))
 sys.exit(1 if failed else 0)
