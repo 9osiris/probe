@@ -25,6 +25,8 @@ def main():
                    help="only run evals whose name contains TEXT (case-insensitive)")
     p.add_argument("--show", action="store_true",
                    help="print the reply under each failing eval in table mode")
+    p.add_argument("--fail-fast", action="store_true",
+                   help="stop after the first failure, the rest show as skipped (runs serially)")
     args = p.parse_args()
 
     if args.jobs < 1:
@@ -46,8 +48,9 @@ def main():
             return 2
 
     client = ChatClient(args.base_url, args.api_key, args.model, timeout=args.timeout)
-    results = run_evals(evals, client, jobs=args.jobs)
+    results = run_evals(evals, client, jobs=args.jobs, fail_fast=args.fail_fast)
     passed = sum(1 for r in results if r["passed"])
+    skipped = sum(1 for r in results if r.get("skipped"))
 
     if args.json:
         out = {
@@ -59,6 +62,7 @@ def main():
                     "name": r["name"],
                     "passed": r["passed"],
                     "ms": r["ms"],
+                    **({"skipped": True} if r.get("skipped") else {}),
                     **({"reply": r["reply"]} if "reply" in r else {}),
                     **({"error": r["error"]} if "error" in r else {}),
                 }
@@ -70,13 +74,17 @@ def main():
 
     width = max(len(r["name"]) for r in results)
     for r in results:
-        print("%-*s  %s" % (width, r["name"], "PASS" if r["passed"] else "FAIL"))
+        status = "SKIP" if r.get("skipped") else ("PASS" if r["passed"] else "FAIL")
+        print("%-*s  %s" % (width, r["name"], status))
         if not r["passed"] and "error" in r:
             print("    error: %s" % r["error"])
         if args.show and not r["passed"] and "reply" in r:
             print("    reply: %s" % r["reply"])
 
-    print("%d/%d passed" % (passed, len(results)))
+    if skipped:
+        print("%d/%d passed (%d skipped)" % (passed, len(results), skipped))
+    else:
+        print("%d/%d passed" % (passed, len(results)))
     return 0 if passed == len(results) else 1
 
 
