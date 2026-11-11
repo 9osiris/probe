@@ -27,8 +27,21 @@ def run_one(ev, client):
     return result
 
 
-def run_evals(evals, client, jobs=1):
+def run_evals(evals, client, jobs=1, fail_fast=False):
     # jobs > 1 runs evals on a thread pool; results stay in input order
+    # fail_fast stops after the first failure and marks the rest skipped,
+    # which only makes sense serially, so it overrides jobs
+    if fail_fast:
+        results = []
+        for ev in evals:
+            result = run_one(ev, client)
+            results.append(result)
+            if not result["passed"]:
+                for rest in evals[len(results):]:
+                    results.append({"name": rest["name"], "passed": False,
+                                    "skipped": True, "ms": 0})
+                break
+        return results
     if jobs <= 1:
         return [run_one(ev, client) for ev in evals]
     with ThreadPoolExecutor(max_workers=jobs) as pool:
