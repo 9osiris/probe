@@ -28,6 +28,10 @@ more flags:
   failing eval. handy for seeing what the model actually said when a
   check misses. json output already includes replies, so this only
   affects the table.
+- `--fail-fast` - stop after the first failing eval, the rest show as
+  SKIP in the table (or `"skipped": true` in json output). runs
+  serially even if `--jobs` is set, since stopping early only makes
+  sense one eval at a time.
 
 output looks like:
 
